@@ -1,0 +1,38 @@
+# fresh-meat-scm-ai-agent/docker-compose.yml
+version: '3.8'
+
+services:
+  # Dịch vụ n8n ("Hệ Thần kinh")
+  n8n:
+    image: n8nio/n8n
+    container_name: n8n_orchestrator
+    restart: always
+    ports:
+      - "5678:5678"
+    env_file:
+      - .env
+    environment:
+      - N8N_ENV_API_SERVER_URL=${API_SERVER_URL}
+      - N8N_ENV_AI_AGENT_URL=${AI_AGENT_URL}
+      - N8N_ENV_MONGO_URL=${MONGO_URL}
+      - N8N_ENV_MONGO_DATABASE=${MONGO_DATABASE}
+      - GENERIC_TIMEZONE=${TZ}
+    volumes:
+      - n8n_data:/home/node/.n8n
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # Dịch vụ AI Agent ("Bộ não")
+  ai_agent:
+    build: ./ai-agent
+    container_name: ai_agent_brain
+    restart: always
+    ports:
+      - "5001:5001"
+    environment:
+      - FLASK_ENV=development
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  n8n_data:

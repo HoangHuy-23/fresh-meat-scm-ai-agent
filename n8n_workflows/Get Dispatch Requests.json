@@ -1,0 +1,117 @@
+{
+  "name": "Get Dispatch Requests",
+  "nodes": [
+    {
+      "parameters": {
+        "collection": "dispatch_requests",
+        "options": {},
+        "query": "={\"status\": \"PENDING\"}"
+      },
+      "type": "n8n-nodes-base.mongoDb",
+      "typeVersion": 1.2,
+      "position": [
+        176,
+        0
+      ],
+      "id": "8617d582-4cde-4e4d-8850-5b30a05e1cb5",
+      "name": "Get Dispatch Requests",
+      "credentials": {
+        "mongoDb": {
+          "id": "COUormSyitbCmxg8",
+          "name": "MongoDB account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={{ $json }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        592,
+        0
+      ],
+      "id": "55eef308-a98c-43f1-8fd1-f5da53d233c5",
+      "name": "Return"
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "9fca59e0-8372-4f9c-b249-462698e39a38",
+      "typeVersion": 1.1,
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "position": [
+        -32,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "dispatchRequests",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        384,
+        0
+      ],
+      "id": "29b5b77f-d39b-4f90-a317-1412bf1cb327",
+      "name": "Aggregate",
+      "executeOnce": false,
+      "alwaysOutputData": false
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Get Dispatch Requests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Dispatch Requests": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "Return",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "d530e1ef-860c-43f7-aeb0-e6ea7cc565e5",
+  "meta": {
+    "instanceId": "86c7527e2b04955ffd99bf866fef624466e57a0d941bd53eba91ca6ab9da005a"
+  },
+  "id": "56ATwOAK78UKXM2F",
+  "tags": []
+}

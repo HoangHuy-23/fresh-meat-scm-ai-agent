@@ -1,0 +1,451 @@
+{
+  "name": "Transport Bid Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/5 * * * *"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "dad2dae3-094c-4b50-9c77-af419fad856b",
+      "name": "Schedule Trigger",
+      "retryOnFail": true,
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a4140660-b0a8-4117-acb1-93b21800fe6a",
+              "leftValue": "={{ $json.dispatchRequests.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            },
+            {
+              "id": "64c2871b-63e3-4a72-93ee-3dc9453fc793",
+              "leftValue": "={{ $json.replenishmentRequests.length}}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        656,
+        16
+      ],
+      "id": "cec9c824-76f3-47be-91c1-539083e3d1b6",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://por-binary-man-discusses.trycloudflare.com/optimize",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($('Prepare AI Agent Body').item.json) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1744,
+        16
+      ],
+      "id": "9b4b113b-8d9a-4a0a-8be1-7da289838783",
+      "name": "Run VRP Optimizer"
+    },
+    {
+      "parameters": {
+        "jsCode": "const mergedRequests = $(\"Merge Request\").first().json \nconst mergedData = $(\"Merge Data\").first().json\n\n\nconst dispatches = mergedRequests.dispatchRequests.map(item => item);\nconst replenishments = mergedRequests.replenishmentRequests.map(item => item);\n\nconst vehicles = mergedData.availableVehicles.map(item => item);\nconst facilities = mergedData.facilities.map(item => item);\nconst products = mergedData.productCatalog.map(item => item);\n\nconst finalBody = {\n  \"dispatchRequests\": dispatches,\n  \"replenishmentRequests\": replenishments,\n  \"availableVehicles\": vehicles,\n  \"allFacilities\": facilities,\n  \"productCatalog\": products\n};\n\nreturn [{ json: finalBody }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1504,
+        16
+      ],
+      "id": "b5963c60-1bc7-4ba1-b0d5-823a7769215d",
+      "name": "Prepare AI Agent Body"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ process.env.API_SERVER_URL}}/api/v1/ai/transport-bids",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1968,
+        16
+      ],
+      "id": "d9683388-732c-40df-bb52-d078283ecfc6",
+      "name": "Create Transport Bid"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "56ATwOAK78UKXM2F",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/56ATwOAK78UKXM2F",
+          "cachedResultName": "Get Dispatch Requests"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        224,
+        -96
+      ],
+      "name": "Call Get Dispatch Requests",
+      "id": "2398eac9-a4a0-429c-87bd-5479504a389b"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "bivtWRO602dWnk8k",
+          "mode": "list"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        944,
+        -128
+      ],
+      "name": "Call Get Available Vehicles",
+      "id": "2556d6e7-427c-4895-9180-186f60fa9fd9"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "XdEJBRbNZyviAsPS",
+          "mode": "list"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        944,
+        80
+      ],
+      "name": "Call Get All Facilities",
+      "id": "065cfd95-a8b1-4ca8-b498-502140433080"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "rnwShBTDgqZjvgdr",
+          "mode": "list"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        944,
+        272
+      ],
+      "name": "Call Get Product Catalog",
+      "id": "a792b6f7-81b6-4227-88b9-fb2542f67399"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        480,
+        16
+      ],
+      "id": "9aa52354-8f07-4c29-889a-9927096633cc",
+      "name": "Merge Request"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "numberInputs": 3,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1248,
+        0
+      ],
+      "id": "e6e1a128-a63c-45d4-ba18-d562a89cdba8",
+      "name": "Merge Data"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "R3nqH3kYnQXhk52V",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/R3nqH3kYnQXhk52V",
+          "cachedResultName": "Get Replenishment Requests"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        224,
+        112
+      ],
+      "name": "Call Get Replenishment Requests",
+      "id": "f2cf084c-ed36-4708-b952-986568603213"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Call Get Dispatch Requests",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Call Get Replenishment Requests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Call Get Available Vehicles",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Call Get All Facilities",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Call Get Product Catalog",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare AI Agent Body": {
+      "main": [
+        [
+          {
+            "node": "Run VRP Optimizer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run VRP Optimizer": {
+      "main": [
+        [
+          {
+            "node": "Create Transport Bid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Transport Bid": {
+      "main": [
+        []
+      ]
+    },
+    "Call Get Dispatch Requests": {
+      "main": [
+        [
+          {
+            "node": "Merge Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Get Available Vehicles": {
+      "main": [
+        [
+          {
+            "node": "Merge Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Get All Facilities": {
+      "main": [
+        [
+          {
+            "node": "Merge Data",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Call Get Product Catalog": {
+      "main": [
+        [
+          {
+            "node": "Merge Data",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Merge Request": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Data": {
+      "main": [
+        [
+          {
+            "node": "Prepare AI Agent Body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Get Replenishment Requests": {
+      "main": [
+        [
+          {
+            "node": "Merge Request",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "saveExecutionProgress": true
+  },
+  "versionId": "4af5931a-32b2-4fb7-b3f5-e35e9c5dff01",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "86c7527e2b04955ffd99bf866fef624466e57a0d941bd53eba91ca6ab9da005a"
+  },
+  "id": "D47d2wDMuIYcWCYK",
+  "tags": []
+}

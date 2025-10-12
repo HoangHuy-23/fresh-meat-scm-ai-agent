@@ -1,0 +1,108 @@
+{
+  "name": "Get Product Catalog",
+  "nodes": [
+    {
+      "parameters": {
+        "url": "={{ process.env.API_SERVER_URL }}/api/v1/products",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        944,
+        272
+      ],
+      "id": "117fb6f0-9f05-424d-983a-c91052e508a4",
+      "name": "Get Product Catalog"
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "309ca4ab-d434-4946-9c38-e1bca989e271",
+      "typeVersion": 1.1,
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "position": [
+        736,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={{ $json }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1344,
+        272
+      ],
+      "id": "21398a72-4a45-453a-b0af-183d701e26a4",
+      "name": "Return"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "productCatalog",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        1152,
+        272
+      ],
+      "id": "ab18cc27-561c-41bd-9250-71fe20b634ce",
+      "name": "Aggregate"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Get Product Catalog": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Get Product Catalog",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "Return",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "7cfe024e-746a-481f-ac80-4283abef478e",
+  "meta": {
+    "instanceId": "86c7527e2b04955ffd99bf866fef624466e57a0d941bd53eba91ca6ab9da005a"
+  },
+  "id": "rnwShBTDgqZjvgdr",
+  "tags": []
+}

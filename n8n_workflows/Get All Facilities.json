@@ -1,0 +1,108 @@
+{
+  "name": "Get All Facilities",
+  "nodes": [
+    {
+      "parameters": {
+        "url": "={{ process.env.API_SERVER_URL }}/api/v1/facilities/public",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1152,
+        0
+      ],
+      "id": "938a1a06-e462-4876-81d1-3e3c0435503d",
+      "name": "Get All Facilities"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={{ $json }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1568,
+        0
+      ],
+      "id": "b3083fb8-5aa9-4330-87f2-99d4af7debc5",
+      "name": "Return"
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "48deb0dd-332e-4ee9-9859-52a62b3593b4",
+      "typeVersion": 1.1,
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "position": [
+        944,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "facilities",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        1360,
+        0
+      ],
+      "id": "219f7fc1-df82-4f13-bcb1-76ecc4a644d3",
+      "name": "Aggregate"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Get All Facilities": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Get All Facilities",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "Return",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "cded2acf-398f-41ef-8cfd-e06d0246dfad",
+  "meta": {
+    "instanceId": "86c7527e2b04955ffd99bf866fef624466e57a0d941bd53eba91ca6ab9da005a"
+  },
+  "id": "XdEJBRbNZyviAsPS",
+  "tags": []
+}
