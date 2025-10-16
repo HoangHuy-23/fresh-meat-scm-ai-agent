@@ -1,12 +1,19 @@
 import sys
 import json
 import os
+import requests
+from dotenv import load_dotenv
 from math import radians, sin, cos, sqrt, atan2
 from flask import Flask, request, jsonify
 from ortools.constraint_solver import routing_enums_pb2
 from ortools.constraint_solver import pywrapcp
 
-# --- LỚP HELPER (Giữ nguyên) ---
+# --- LỚP CẤU HÌNH VÀ HELPER ---
+
+# Load biến môi trường từ file .env
+load_dotenv()
+API_SERVER_URL = os.getenv("API_SERVER_URL", "http://localhost:8080")
+API_TOKEN = os.getenv("AGENT_API_TOKEN")
 
 def normalize_quantity_to_kg(item, product_catalog):
     sku = item.get('sku') or item.get('assetID')
@@ -33,102 +40,134 @@ def haversine_distance(lat1, lon1, lat2, lon2):
     c = 2 * atan2(sqrt(a), sqrt(1 - a))
     return R * c
 
-# --- LỚP LOGIC NGHIỆP VỤ (MATCHING) - HÀM HOÀN CHỈNH 1 ---
+# --- LỚP LOGIC NGHIỆP VỤ (MATCHING) ---
 
 def create_transport_tasks(dispatch_requests, replenishment_requests, all_facilities, product_catalog):
     print("\n--- Starting Task Creation ---", file=sys.stderr)
     tasks = []
     facility_map = {f['facilityID']: f for f in all_facilities}
     
-    # Xây dựng kho ảo
+    # Xây dựng kho ảo từ Processor
     available_inventory = {}
-    for req in dispatch_requests:
-        from_facility = facility_map.get(req['fromFacilityID'])
-        if from_facility and from_facility.get('type') == 'PROCESSOR' and req['status'] == 'PENDING':
-            for item in req['items']:
-                sku = item.get('sku') or item.get('assetID')
-                if sku not in available_inventory: available_inventory[sku] = []
-                available_inventory[sku].append({
-                    "from_facility": req['fromFacilityID'],
-                    "quantity_value": item['quantity']['value'],
-                    "quantity_unit": item['quantity']['unit'],
-                    "original_item": item, "original_request_id": req['requestID']
-                })
+    if dispatch_requests:
+        for req in dispatch_requests:
+            from_facility = facility_map.get(req.get('fromFacilityID'))
+            if from_facility and from_facility.get('type') == 'PROCESSOR' and req.get('status') == 'PENDING':
+                for item in req.get('items', []):
+                    sku = item.get('sku') or item.get('assetID')
+                    if sku:
+                        if sku not in available_inventory: available_inventory[sku] = []
+                        available_inventory[sku].append({
+                            "from_facility": req['fromFacilityID'],
+                            "quantity_value": item['quantity']['value'],
+                            "quantity_unit": item['quantity']['unit'],
+                            "original_item": item, "original_request_id": req['requestID']
+                        })
     print(f"Available inventory from Processors: {json.dumps(available_inventory, indent=2)}", file=sys.stderr)
 
     # Ưu tiên 1: Đáp ứng yêu cầu của Retailer
     print("\n--- Phase 1: Matching Retailer Replenishment Requests ---", file=sys.stderr)
-    for rep_req in replenishment_requests:
-        if rep_req['status'] != 'PENDING': continue
-        print(f"Processing Replenishment Request: {rep_req['requestID']}", file=sys.stderr)
-        for item_needed in rep_req.get('items', []):
-            sku_needed = item_needed.get('sku')
-            needed_value = item_needed['quantity']['value']
-            needed_unit = item_needed['quantity']['unit']
-            print(f"  - Needs {needed_value} {needed_unit} of SKU {sku_needed}", file=sys.stderr)
-            
-            if sku_needed in available_inventory:
-                for source in available_inventory[sku_needed]:
-                    if needed_value <= 0: break
-                    if source['quantity_value'] > 0 and source['quantity_unit'] == needed_unit:
-                        print(f"    > Found source at {source['from_facility']} with {source['quantity_value']} {source['quantity_unit']} available.", file=sys.stderr)
-                        take_value = min(needed_value, source['quantity_value'])
+    if replenishment_requests:
+        for rep_req in replenishment_requests:
+            if rep_req.get('status') != 'PENDING': continue
+            print(f"Processing Replenishment Request: {rep_req.get('requestID')}", file=sys.stderr)
+            for item_needed in rep_req.get('items', []):
+                sku_needed = item_needed.get('sku')
+                if not sku_needed: continue
+                
+                needed_value = item_needed['quantity']['value']
+                needed_unit = item_needed['quantity']['unit']
+                print(f"  - Needs {needed_value} {needed_unit} of SKU {sku_needed}", file=sys.stderr)
+                
+                # Cố gắng đáp ứng từ kho ảo (Processor)
+                if sku_needed in available_inventory:
+                    for source in available_inventory[sku_needed]:
+                        if needed_value <= 0: break
+                        if source['quantity_value'] > 0 and source['quantity_unit'] == needed_unit:
+                            take_value = min(needed_value, source['quantity_value'])
+                            task_item = {**source['original_item'], 'quantity': {**source['original_item']['quantity'], 'value': take_value}}
+                            tasks.append({
+                                "from": source['from_facility'], "to": rep_req['requestingFacilityID'], "demand_kg": normalize_quantity_to_kg(task_item, product_catalog),
+                                "items": [task_item], "vehicle_type": "COLD_CHAIN", "original_request_ids": {source['original_request_id']}
+                            })
+                            print(f"      ==> CREATED TASK (from Processor): {source['from_facility']} -> {rep_req['requestingFacilityID']} ({take_value} {needed_unit})", file=sys.stderr)
+                            needed_value -= take_value
+                            source['quantity_value'] -= take_value
+                
+                # Nếu vẫn còn cần, tìm trong kho (Warehouse)
+                if needed_value > 0:
+                    print(f"  - Still needs {needed_value} {needed_unit}. Searching in warehouses...", file=sys.stderr)
+                    active_warehouses = [f for f in all_facilities if f.get('type') == 'WAREHOUSE' and f.get('status') == 'ACTIVE']
+                    for wh in active_warehouses:
+                        if needed_value <= 0: break
                         
-                        task_item = source['original_item'].copy()
-                        task_item['quantity'] = source['original_item']['quantity'].copy()
-                        task_item['quantity']['value'] = take_value
+                        headers = {'Authorization': f'Bearer {API_TOKEN}'}
+                        inventory_resp = requests.get(f"{API_SERVER_URL}/api/v1/facilities/{wh['facilityID']}/inventory?sku={sku_needed}", headers=headers)
                         
-                        demand_kg = normalize_quantity_to_kg(task_item, product_catalog)
-
-                        tasks.append({
-                            "from": source['from_facility'], "to": rep_req['requestingFacilityID'], "demand_kg": demand_kg,
-                            "items": [task_item], "vehicle_type": "COLD_CHAIN",
-                            "original_request_ids": {source['original_request_id']}
-                        })
-                        print(f"      ==> CREATED TASK: {source['from_facility']} -> {rep_req['requestingFacilityID']} ({take_value} {needed_unit})", file=sys.stderr)
-                        
-                        needed_value -= take_value
-                        source['quantity_value'] -= take_value
-            else:
-                print(f"    > No inventory found for SKU {sku_needed}.", file=sys.stderr)
+                        if inventory_resp.status_code == 200:
+                            inventory_in_wh = inventory_resp.json()
+                            if not inventory_in_wh:
+                                print(f"    > No inventory for SKU {sku_needed} in Warehouse {wh['facilityID']}.", file=sys.stderr)
+                                continue 
+                            
+                            print(f"    > Found {len(inventory_in_wh)} asset(s) for SKU {sku_needed} in Warehouse {wh['facilityID']}.", file=sys.stderr)
+                            
+                            for asset_in_wh in inventory_in_wh:
+                                if needed_value <= 0: break
+                                
+                                available_value = asset_in_wh.get('currentQuantity', {}).get('value', 0)
+                                if available_value > 0:
+                                    take_value = min(needed_value, available_value)
+                                    
+                                    task_item = {
+                                        "assetID": asset_in_wh['assetID'],
+                                        "sku": sku_needed,
+                                        "quantity": {"unit": needed_unit, "value": take_value}
+                                    }
+                                    
+                                    tasks.append({
+                                        "from": wh['facilityID'], "to": rep_req['requestingFacilityID'], 
+                                        "demand_kg": normalize_quantity_to_kg(task_item, product_catalog),
+                                        "items": [task_item], "vehicle_type": "COLD_CHAIN", "original_request_ids": set()
+                                    })
+                                    print(f"      ==> CREATED TASK (from Warehouse): {wh['facilityID']} -> {rep_req['requestingFacilityID']} ({take_value} {needed_unit}) using Asset {asset_in_wh['assetID']}", file=sys.stderr)
+                                    needed_value -= take_value
+                        else:
+                            print(f"    > WARN: Failed to get inventory for Warehouse {wh['facilityID']}. Status: {inventory_resp.status_code}", file=sys.stderr)
 
     # Ưu tiên 2: Chuyển hàng dư và hàng thô
     print("\n--- Phase 2: Handling Surplus and Raw Materials ---", file=sys.stderr)
     default_warehouse = next((f['facilityID'] for f in all_facilities if f.get('type') == 'WAREHOUSE' and f.get('status') == 'ACTIVE'), None)
     default_processor = next((f['facilityID'] for f in all_facilities if f.get('type') == 'PROCESSOR' and f.get('status') == 'ACTIVE'), None)
-    print(f"Default Warehouse: {default_warehouse}, Default Processor: {default_processor}", file=sys.stderr)
 
     # Hàng thành phẩm dư từ Processor -> Warehouse
-    for sku, sources in available_inventory.items():
-        for source in sources:
-            if source['quantity_value'] > 0 and default_warehouse:
-                task_item = source['original_item'].copy()
-                task_item['quantity'] = source['original_item']['quantity'].copy()
-                task_item['quantity']['value'] = source['quantity_value']
-                demand_kg = normalize_quantity_to_kg(task_item, product_catalog)
-                tasks.append({
-                    "from": source['from_facility'], "to": default_warehouse, "demand_kg": demand_kg,
-                    "items": [task_item], "vehicle_type": "COLD_CHAIN",
-                    "original_request_ids": {source['original_request_id']}
-                })
-                print(f"  ==> CREATED SURPLUS TASK: {source['from_facility']} -> {default_warehouse} ({source['quantity_value']} {source['quantity_unit']})", file=sys.stderr)
+    if available_inventory:
+        for sku, sources in available_inventory.items():
+            for source in sources:
+                if source['quantity_value'] > 0 and default_warehouse:
+                    task_item = {**source['original_item'], 'quantity': {**source['original_item']['quantity'], 'value': source['quantity_value']}}
+                    tasks.append({
+                        "from": source['from_facility'], "to": default_warehouse, "demand_kg": normalize_quantity_to_kg(task_item, product_catalog),
+                        "items": [task_item], "vehicle_type": "COLD_CHAIN", "original_request_ids": {source['original_request_id']}
+                    })
+                    print(f"  ==> CREATED SURPLUS TASK: {source['from_facility']} -> {default_warehouse} ({source['quantity_value']} {source['quantity_unit']})", file=sys.stderr)
 
     # Hàng thô từ Farm -> Processor
-    for req in dispatch_requests:
-        from_facility = facility_map.get(req['fromFacilityID'])
-        if from_facility and from_facility.get('type') == 'FARM' and req['status'] == 'PENDING' and default_processor:
-            demand_kg = sum(normalize_quantity_to_kg(item, product_catalog) for item in req['items'])
-            tasks.append({
-                "from": req['fromFacilityID'], "to": default_processor, "demand_kg": demand_kg,
-                "items": req['items'], "vehicle_type": "RAW_MATERIAL_TRUCK",
-                "original_request_ids": {req['requestID']}
-            })
-            print(f"  ==> CREATED RAW MATERIAL TASK: {req['fromFacilityID']} -> {default_processor} ({demand_kg}kg)", file=sys.stderr)
+    if dispatch_requests:
+        for req in dispatch_requests:
+            from_facility = facility_map.get(req.get('fromFacilityID'))
+            if from_facility and from_facility.get('type') == 'FARM' and req.get('status') == 'PENDING' and default_processor:
+                demand_kg = sum(normalize_quantity_to_kg(item, product_catalog) for item in req.get('items', []))
+                tasks.append({
+                    "from": req['fromFacilityID'], "to": default_processor, "demand_kg": demand_kg,
+                    "items": req['items'], "vehicle_type": "RAW_MATERIAL_TRUCK", "original_request_ids": {req['requestID']}
+                })
+                print(f"  ==> CREATED RAW MATERIAL TASK: {req['fromFacilityID']} -> {default_processor} ({demand_kg}kg)", file=sys.stderr)
             
     print(f"\n--- Finished Task Creation. Total tasks created: {len(tasks)} ---", file=sys.stderr)
     return tasks
 
-# --- LỚP TỐI ƯU HÓA (VRP SOLVER) - HÀM HOÀN CHỈNH 2 ---
+# --- LỚP TỐI ƯU HÓA (VRP SOLVER) ---
 
 def solve_vrp_for_vehicle_type(tasks, vehicles, all_facilities, vehicle_type):
     """Giải bài toán VRP và gom nhóm các điểm dừng một cách chính xác."""
@@ -201,12 +240,10 @@ def solve_vrp_for_vehicle_type(tasks, vehicles, all_facilities, vehicle_type):
         
         if not route_nodes: continue
 
-        # === LOGIC GOM NHÓM ĐÃ ĐƯỢC SỬA LẠI HOÀN CHỈNH ===
         stops_map = {}
         original_request_ids = set()
 
         # Xác định các task thuộc về lộ trình này
-        # Logic đơn giản: tìm các task có điểm đi/đến nằm trong route_nodes
         tasks_in_route = [
             task for task in tasks 
             if location_ids[task['from']] in route_nodes or location_ids[task['to']] in route_nodes
@@ -243,13 +280,12 @@ def solve_vrp_for_vehicle_type(tasks, vehicles, all_facilities, vehicle_type):
         for node_index in route_nodes:
             facility_id = location_map_rev[node_index]
             if facility_id in stops_map:
-                stop_data = stops_map.pop(facility_id) # Dùng pop để tránh lặp lại
+                stop_data = stops_map.pop(facility_id) 
                 stops.append({
                     "facilityID": facility_id,
                     "action": stop_data['action'],
                     "items": stop_data['items']
                 })
-        # =======================================================
 
         vehicle_info = vehicles[vehicle_id]
         bids.append({
@@ -266,21 +302,28 @@ app = Flask(__name__)
 
 @app.route('/optimize', methods=['POST'])
 def optimize_route():
+    if not API_SERVER_URL:
+        print("FATAL: API_SERVER_URL or AGENT_API_TOKEN is not set in the environment.", file=sys.stderr)
+        return jsonify({"error": "Agent is not configured properly."}), 500
+        
     input_data = request.get_json()
     if not input_data:
         return jsonify({"error": "Invalid JSON input"}), 400
 
     try:
-        dispatch_reqs = input_data.get('dispatchRequests', [])
-        replenishment_reqs = input_data.get('replenishmentRequests', [])
+        # BƯỚC A: TRÍCH XUẤT DỮ LIỆU TỪ INPUT
+        dispatch_reqs = [req for req in input_data.get('dispatchRequests', []) if req]
+        replenishment_reqs = [req for req in input_data.get('replenishmentRequests', []) if req]
         available_vehicles = input_data.get('availableVehicles', [])
         all_facilities = input_data.get('allFacilities', [])
         product_catalog_list = input_data.get('productCatalog', [])
         product_catalog = {p['sku']: p for p in product_catalog_list}
 
+        # BƯỚC B: XỬ LÝ NGHIỆP VỤ (MATCHING)
         transport_tasks = create_transport_tasks(dispatch_reqs, replenishment_reqs, all_facilities, product_catalog)
         if not transport_tasks: return jsonify([])
 
+        # BƯỚC C: TỐI ƯU HÓA (VRP)
         all_bids = []
         cold_chain_tasks = [t for t in transport_tasks if t['vehicle_type'] == 'COLD_CHAIN']
         cold_chain_vehicles = [v for v in available_vehicles if v['specs'].get('refrigerated') == True]
@@ -292,6 +335,7 @@ def optimize_route():
         if raw_material_tasks and raw_material_vehicles:
             all_bids.extend(solve_vrp_for_vehicle_type(raw_material_tasks, raw_material_vehicles, all_facilities, "RAW_MATERIAL_TRUCK"))
 
+        # BƯỚC D: TRẢ VỀ KẾT QUẢ
         return jsonify(all_bids)
     except Exception as e:
         print(f"An error occurred during optimization: {e}", file=sys.stderr)
